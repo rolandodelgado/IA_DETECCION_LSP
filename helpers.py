@@ -1,30 +1,46 @@
 import os
 import cv2
-from mediapipe.python.solutions.holistic import FACEMESH_CONTOURS, POSE_CONNECTIONS, HAND_CONNECTIONS
-from mediapipe.python.solutions.drawing_utils import draw_landmarks, DrawingSpec
+from mediapipe.python.solutions.holistic import (  # type: ignore
+    FACEMESH_CONTOURS,
+    POSE_CONNECTIONS,
+    HAND_CONNECTIONS,
+)
+from mediapipe.python.solutions.drawing_utils import (  # type: ignore
+    draw_landmarks,
+    DrawingSpec,
+)
 import numpy as np
 import pandas as pd
 from typing import NamedTuple
 
+
 # GENERAL
 def mediapipe_detection(image, model):
+    if image is None or model is None:
+        return None, None
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     image.flags.writeable = False
-    results = model.process(image) 
+    results = model.process(image)
     image.flags.writeable = True
     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
     return image, results
 
+
 def create_folder(path):
-    '''
+    """
     ### CREAR CARPETA SI NO EXISTE
     Si ya existe, no hace nada.
-    '''
+    """
     if not os.path.exists(path):
         os.makedirs(path)
 
+
 def there_hand(results: NamedTuple) -> bool:
-    return results.left_hand_landmarks or results.right_hand_landmarks
+    return (
+        results.left_hand_landmarks is not None  # type: ignore
+        or results.right_hand_landmarks is not None  # type: ignore
+    )
+
 
 def get_actions(path):
     out = []
@@ -34,15 +50,17 @@ def get_actions(path):
             out.append(name)
     return out
 
+
 # CAPTURE SAMPLES
 def configurar_resolucion(camara):
     camara.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     camara.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
+
 def draw_keypoints(image, results):
-    '''
+    """
     Dibuja los keypoints en la imagen
-    '''
+    """
     draw_landmarks(
         image,
         results.face_landmarks,
@@ -75,62 +93,104 @@ def draw_keypoints(image, results):
         DrawingSpec(color=(245, 66, 230), thickness=2, circle_radius=2),
     )
 
+
 def save_frames(frames, output_folder):
     for num_frame, frame in enumerate(frames):
         frame_path = os.path.join(output_folder, f"{num_frame + 1}.jpg")
         cv2.imwrite(frame_path, cv2.cvtColor(frame, cv2.COLOR_BGR2BGRA))
 
+
 # CREATE KEYPOINTS
 def extract_keypoints(results):
-    pose = np.array([[res.x, res.y, res.z, res.visibility] for res in results.pose_landmarks.landmark]).flatten() if results.pose_landmarks else np.zeros(33*4)
-    face = np.array([[res.x, res.y, res.z] for res in results.face_landmarks.landmark]).flatten() if results.face_landmarks else np.zeros(468*3)
-    lh = np.array([[res.x, res.y, res.z] for res in results.left_hand_landmarks.landmark]).flatten() if results.left_hand_landmarks else np.zeros(21*3)
-    rh = np.array([[res.x, res.y, res.z] for res in results.right_hand_landmarks.landmark]).flatten() if results.right_hand_landmarks else np.zeros(21*3)
+    pose = (
+        np.array(
+            [
+                [res.x, res.y, res.z, res.visibility]
+                for res in results.pose_landmarks.landmark
+            ]
+        ).flatten()
+        if results.pose_landmarks
+        else np.zeros(33 * 4)
+    )
+    face = (
+        np.array(
+            [[res.x, res.y, res.z] for res in results.face_landmarks.landmark]
+        ).flatten()
+        if results.face_landmarks
+        else np.zeros(468 * 3)
+    )
+    lh = (
+        np.array(
+            [[r.x, r.y, r.z] for r in results.left_hand_landmarks.landmark]
+        ).flatten()
+        if results.left_hand_landmarks
+        else np.zeros(21 * 3)
+    )
+    rh = (
+        np.array(
+            [[r.x, r.y, r.z] for r in results.right_hand_landmarks.landmark]
+        ).flatten()
+        if results.right_hand_landmarks
+        else np.zeros(21 * 3)
+    )
     return np.concatenate([pose, face, lh, rh])
 
+
 def get_keypoints(model, path):
-    '''
+    """
     ### OBTENER KEYPOINTS DE LA MUESTRA
     Retorna la secuencia de keypoints de la muestra
-    '''
+    """
     kp_seq = np.array([])
     for img_name in os.listdir(path):
         img_path = os.path.join(path, img_name)
         frame = cv2.imread(img_path)
         _, results = mediapipe_detection(frame, model)
         kp_frame = extract_keypoints(results)
-        kp_seq = np.concatenate([kp_seq, [kp_frame]] if kp_seq.size > 0 else [[kp_frame]])
+        kp_seq = np.concatenate(
+            [kp_seq, [kp_frame]] if kp_seq.size > 0 else [[kp_frame]]
+        )
     return kp_seq
 
+
 def insert_keypoints_sequence(df, n_sample: int, kp_seq):
-    '''
+    """
     ### INSERTA LOS KEYPOINTS DE LA MUESTRA AL DATAFRAME
     Retorna el mismo DataFrame pero con los keypoints de la muestra agregados
-    '''
+    """
     for frame, keypoints in enumerate(kp_seq):
-        data = {'sample': n_sample, 'frame': frame + 1,'keypoints': [keypoints]}
+        data = {
+            "sample": n_sample,
+            "frame": frame + 1,
+            "keypoints": [keypoints],
+        }
         df_keypoints = pd.DataFrame(data)
         df = pd.concat([df, df_keypoints])
     return df
 
+
 # TRAINING MODEL
 def get_sequences_and_labels(actions, data_path):
     sequences, labels = [], []
-    
+
     for label, action in enumerate(actions):
         hdf_path = os.path.join(data_path, f"{action}.h5")
-        data = pd.read_hdf(hdf_path, key='data')
-        
-        for _, data_filtered in data.groupby('sample'):
-            sequences.append([fila['keypoints'] for _, fila in data_filtered.iterrows()])
+        data = pd.read_hdf(hdf_path, key="data")
+
+        for _, data_filtered in data.groupby("sample"):
+            sequences.append(
+                [fila["keypoints"] for _, fila in data_filtered.iterrows()]
+            )
             labels.append(label)
-            
+
     return sequences, labels
+
 
 # EVALUATION
 def save_txt(file_name, content):
-    with open(file_name, 'w') as archivo:
+    with open(file_name, "w") as archivo:
         archivo.write(content)
+
 
 def format_sentences(sent, sentence, repe_sent):
     if len(sentence) > 1:
