@@ -1,0 +1,17 @@
+gTTS==2.5.1
+tensorflow==2.10.1
+tensorflow-cpu==2.10.1
+keras==2.10.0
+keras-preprocessing==1.1.2
+mediapipe==0.10.7
+numpy==1.26.4
+opencv_contrib_python==4.9.0.80
+pandas==2.2.2
+pandas-stubs==2.2.3.241009
+pygame==2.5.2
+Flask==3.0.2
+flask-cors==5.0.0
+gevent-websocket==0.10.1
+protobuf==3.19.6
+tables==3.9.2
+PyQt5==5.15.9
